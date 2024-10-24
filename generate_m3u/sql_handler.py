@@ -1,3 +1,5 @@
+import mysql.connector
+from mysql.connector import Error, errorcode
 class SQLHandler:
     def __init__(self, host_name: str, user_name: str, user_password: str, database_name: str = None, ssl_ca="/etc/ssl/certs/ca-certificates.crt"):
         self.host_name = host_name

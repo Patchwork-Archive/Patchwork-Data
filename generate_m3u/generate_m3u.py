@@ -1,5 +1,3 @@
-import mysql.connector
-from mysql.connector import Error, errorcode
 from sql_handler import SQLHandler
 import configparser
 import re
