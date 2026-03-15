@@ -1,24 +1,11 @@
 from sql_handler import SQLHandler
-import configparser
 import re
 import argparse
 from tqdm import tqdm
 
 
-def read_config(file_path: str):
-    config = configparser.ConfigParser()
-    config.read(file_path)
-    return config
-
-CONFIG = read_config("config.ini")
-
-
 def create_connection() -> SQLHandler:
-    hostname = CONFIG.get("database", "host")
-    user = CONFIG.get("database", "user")
-    password = CONFIG.get("database", "password")
-    database = CONFIG.get("database", "database")
-    return SQLHandler(hostname, user, password, database)
+    return SQLHandler()
 
 
 BASE_CDN_URL = "https://cdn.pinapelz.com/VTuber%20Covers%20Archive/"
@@ -34,7 +21,7 @@ def update_m3u(file_path: str, output_path: str = "new_m3u.m3u"):
             match = re.search(pattern, line)
             if match:
                 video_id = match.group(1).split(".")[0]
-                query = f"SELECT extension FROM files WHERE video_id = '{video_id}'"
+                query = f"SELECT extension FROM patchwork_archive.files WHERE video_id = '{video_id}'"
                 result = server.get_query_result(query)
                 if result:
                     extension = result[0][0]
@@ -46,23 +33,43 @@ def continue_m3u(file_path: str, output_path: str = "new_m3u.m3u"):
     server = create_connection()
     with open(file_path, "r") as f:
         output_file = open(output_path, "w")
-        last_line = f.readlines()[-1]
+        lines = f.readlines()
+        if not lines:
+            print("Input m3u file is empty.")
+            return
+        last_line = lines[-1]
         pattern = r'/([^/]+)$'
-        last_line_video_id = re.search(pattern, last_line).group(1).split(".")[0]
-        most_recent_id = server.execute_query(f"SELECT id FROM songs WHERE video_id = '{last_line_video_id}'")[0][0]
+        match = re.search(pattern, last_line)
+        if not match:
+            print("Could not parse video id from last line.")
+            return
+        last_line_video_id = match.group(1).split(".")[0]
 
-        unprocessed_songs = server.execute_query(f"SELECT video_id FROM songs WHERE id > {most_recent_id}")
+        # Use get_query_result for SELECT queries (returns rows)
+        result = server.get_query_result(f"SELECT id FROM patchwork_archive.songs WHERE video_id = '{last_line_video_id}'")
+        if not result:
+            print(f"No song found with video_id '{last_line_video_id}'. Nothing to continue from.")
+            return
+        most_recent_id = result[0][0]
+
+        unprocessed_songs = server.get_query_result(f"SELECT video_id FROM patchwork_archive.songs WHERE id > {most_recent_id}")
+        if not unprocessed_songs:
+            print("No new songs to process.")
+            return
+
         for song in tqdm(unprocessed_songs, desc="Processing songs"):
             video_id = song[0]
-            query = f"SELECT extension FROM files WHERE video_id = '{video_id}'"
+            query = f"SELECT extension FROM patchwork_archive.files WHERE video_id = '{video_id}'"
             result = server.get_query_result(query)
             if result:
                 extension = result[0][0]
                 output_file.write(f"{BASE_CDN_URL}{video_id}.{extension}\n")
 
+        output_file.close()
+
 def merge_into_original_m3u(source_file: str, dest_file: str):
-    prompt = input("Would you like to overwrrite the original m3u file? (y/n)")
-    if prompt == "n":
+    prompt = input("Would you like to overwrite the original m3u file? (y/n) ")
+    if prompt.lower() == "n":
         print("Got it. The output file is new_m3u.m3u")
         return
     with open(source_file, "r") as f:
